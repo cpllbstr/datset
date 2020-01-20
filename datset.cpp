@@ -2,11 +2,11 @@
 #include <filesystem>
 #include <math.h>
 #include <random>
+#include <chrono>
 
 using namespace std;
 
-void overlayImage(cv::Mat &src, cv::Mat &overlay, const cv::Point& location)
-{
+void overlayImage(cv::Mat &src, cv::Mat &overlay, const cv::Point& location) {
     for (int y = max(location.y, 0); y < src.rows; ++y)
     {
         int fY = y - location.y;
@@ -44,7 +44,7 @@ cv::Mat clearBg(cv::Mat plate) {
     return dst;
 }
 
-void rotateImage(const cv::Mat &input, cv::Mat &output, double alpha, double beta, double gamma, double dx, double dy, double dz, double f) {
+void rotateImage(const cv::Mat &input,cv::Mat &output, double alpha, double beta, double gamma, double dx, double dy, double dz, double f) {
     alpha = (alpha)*CV_PI/180.;
     beta = (beta)*CV_PI/180.;
     gamma = (gamma)*CV_PI/180.;
@@ -94,107 +94,33 @@ void rotateImage(const cv::Mat &input, cv::Mat &output, double alpha, double bet
     cv::warpPerspective(bordered, output, trans, bordered.size(), cv::INTER_LANCZOS4);
 }
 
-void autoCrop(cv::Mat &img) {
-    int left;
-    auto fl = false;
-    for (int i =0; i< img.cols-1; i++) {
-        for (int j=0; j<img.rows-1; j++) {
-            cout<<i<<"-"<<j<<endl;
-            if (img.ptr(i, j)[0] >50 && img.ptr(i, j)[1] >50 && img.ptr(i, j)[2] >50) {
-                left = i;
-                cout<<i<<"-"<<j<<endl;
-                cout<<img.rows<<"-"<<img.cols<<endl;
-                fl = true;
-                break;
-            }
-        }
-        if (fl) {
-            fl = false;
-            break;
-        }
-    }
-
-    cv::line(img, cv::Point(left, 0), cv::Point(left, img.rows-1), cv::Scalar(0,255,0),2);
-    cv::imshow("i", img);
-    cv::waitKey(0);
-
-    cout<<"L: "<<left<<endl;
-    int right;
-    for (int i =img.cols-1; i>=0; i--) {
-        for (int j=0; j<img.rows-1; j++) {
-            if (img.ptr(i, j)[0] >10 && img.ptr(i, j)[1] >10 && img.ptr(i, j)[2] >10) {    
-                right = j;
-                cout<<i<<"-"<<j<<endl;
-                cout<<img.rows<<"-"<<img.cols<<endl;
-                fl = true;
-                break;
-            }
-        }
-        if (fl) {
-            fl = false;
-            break;
-        }
-    }
-    
-    cout<<"R: "<<right<<endl;
-    
-
-    int top;
-    for (int j=0; j<img.rows-1; j++) {
-        for (int i =0; i< img.cols-1; i++) {
-            if (img.ptr(i, j)[0] != 0 && img.ptr(i, j)[1] !=0 && img.ptr(i, j)[2] != 0) {
-                top = i;
-                fl = true;
-                break;
-            }
-        }
-        if (fl) {
-            fl = false;
-            break;
-        }
-    }
-
-    cout<<"here"<<endl;
-
-    int bot;
-    for (int j=img.rows-1; j>0; j++) {
-        for (int i =0; i< img.cols-1; i++) {
-            if (img.ptr(i, j)[0] != 0 && img.ptr(i, j)[1] !=0 && img.ptr(i, j)[2] != 0 && right<i) {
-                bot = i;
-                fl = true;
-                break; 
-            }
-        }
-        if (fl) {
-            fl = false;
-            break;
-        }
-    }
-    cv::imshow("crop", img(cv::Rect(cv::Point(left, top), cv::Point(right, bot))));
-    cv::waitKey(0);
-    exit(0);
-}
+// void autoCrop(cv::Mat &orig) {
+    // cv::Mat grey, img;
+    // cv::cvtColor(orig, grey, cv::COLOR_BGR2GRAY);
+    // orig = orig(cv::boundingRect(grey));
+// }
 
 
 
-list<cv::Mat> randomWarps(cv::Mat plate) {
+list<cv::Mat> randomWarps(cv::Mat plate, int n) {
     list<cv::Mat> warps;
 
     random_device rd;  //Will be used to obtain a seed for the random number engine
     mt19937 gen(rd());
     uniform_real_distribution<> realgen(-1.f, 1.f);
 
-    for (int i =0; i<5; i++) {
-        gen.seed(time(0));
-        auto xangl = realgen(gen)*25.; 
+    for (int i =0; i<n; i++) {
+        gen.seed(rd());
+        auto xangl = realgen(gen)*25.;
+        gen.seed(rd());
         auto yangl = realgen(gen)*25.;
+        gen.seed(rd());
         auto zangl = realgen(gen)*10.;
-        cv::Mat platew; 
+        cv::Mat platew, respl, grey, res;
         rotateImage(plate, platew, xangl, yangl,zangl, 0,0,300, 200);
-        autoCrop(platew);
-        warps.push_back(platew);
-        cv::imshow("w", platew);
-        cv::waitKey(0);
+        cv::cvtColor(platew, grey, cv::COLOR_BGR2GRAY);
+        res = platew(cv::boundingRect(grey));
+        warps.push_back(clearBg(res));
     }
     return warps; 
 }
@@ -202,12 +128,14 @@ list<cv::Mat> randomWarps(cv::Mat plate) {
 
 
 int main(int argc, char const *argv[]) {
-    if (argc<3) {
-        cout<<"Usage: datset /path/to/plates/ /path/to/background/";
+    if (argc<5) {
+        cout<<"Usage: datset /path/to/plates/ /path/to/background/ output_image_size scale_factor\n";
         return -1;
     }
     string plates_path = string(argv[1]);
     string backgr_path = string(argv[2]);
+    int image_size = atoi(argv[3]);
+    double plate_scale = atof(argv[4]); 
     string platp;
     for (const auto & entry : filesystem::directory_iterator(plates_path)) {
         auto ext = entry.path().filename().extension();
@@ -217,20 +145,22 @@ int main(int argc, char const *argv[]) {
         }
     }
 
-
-    cv::Mat resbg;
+    random_device rd;  //Will be used to obtain a seed for the random number engine
+    mt19937 gen(rd());
+    uniform_int_distribution<> intgen(1, image_size-plate_scale*image_size);
+    
     auto plate = cv::imread(platp, cv::IMREAD_UNCHANGED);
     auto back = cv::imread(backgr_path);
-    auto platesw =  randomWarps(plate);
-    return 0;
-    cv::resize(back, resbg, cv::Size(412, 412));
-    cv::cvtColor(resbg, resbg, cv::COLOR_BGR2BGRA);
-    int i =0; 
-    for (auto &pl : platesw) {
-        i++;
-        auto clearpl =  clearBg(pl);
-        cv::imwrite("res.png",  clearpl);
-        overlayImage(resbg, clearpl, cv::Point(0,0));
+    auto wrps = randomWarps(plate, 10);
+
+    for (auto& plt: wrps) {
+        cv::Mat resbg;
+        cv::Mat resplt;
+        auto scale = plate_scale*image_size/plt.cols;
+        cv::resize(back, resbg, cv::Size(image_size,image_size));
+        cv::resize(plt, resplt, cv::Size(scale*plt.cols, scale*plt.rows));
+        gen.seed(rd());
+        overlayImage(resbg, resplt, cv::Point(intgen(gen), intgen(gen)));
         cv::imshow("res", resbg);
         cv::waitKey(0);
     }
