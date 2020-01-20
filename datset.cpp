@@ -148,19 +148,19 @@ int main(int argc, char const *argv[]) {
     random_device rd;  //Will be used to obtain a seed for the random number engine
     mt19937 gen(rd());
     uniform_int_distribution<> intgen(1, image_size-plate_scale*image_size);
-    
     auto plate = cv::imread(platp, cv::IMREAD_UNCHANGED);
     auto back = cv::imread(backgr_path);
     auto wrps = randomWarps(plate, 10);
 
     for (auto& plt: wrps) {
         cv::Mat resbg;
-        cv::Mat resplt;
+        cv::Mat resplt, resresplt;
         auto scale = plate_scale*image_size/plt.cols;
         cv::resize(back, resbg, cv::Size(image_size,image_size));
         cv::resize(plt, resplt, cv::Size(scale*plt.cols, scale*plt.rows));
         gen.seed(rd());
-        overlayImage(resbg, resplt, cv::Point(intgen(gen), intgen(gen)));
+        cv::GaussianBlur(resplt, resresplt, cv::Size(3, 3), cv::BORDER_DEFAULT);
+        overlayImage(resbg, resresplt, cv::Point(intgen(gen), intgen(gen)));
         cv::imshow("res", resbg);
         cv::waitKey(0);
     }
