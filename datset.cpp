@@ -3,6 +3,7 @@
 #include <math.h>
 #include <random>
 #include <chrono>
+#include <fstream>
 
 using namespace std;
 
@@ -94,14 +95,6 @@ void rotateImage(const cv::Mat &input,cv::Mat &output, double alpha, double beta
     cv::warpPerspective(bordered, output, trans, bordered.size(), cv::INTER_LANCZOS4);
 }
 
-// void autoCrop(cv::Mat &orig) {
-    // cv::Mat grey, img;
-    // cv::cvtColor(orig, grey, cv::COLOR_BGR2GRAY);
-    // orig = orig(cv::boundingRect(grey));
-// }
-
-
-
 list<cv::Mat> randomWarps(cv::Mat plate, int n) {
     list<cv::Mat> warps;
 
@@ -112,9 +105,7 @@ list<cv::Mat> randomWarps(cv::Mat plate, int n) {
     for (int i =0; i<n; i++) {
         gen.seed(rd());
         auto xangl = realgen(gen)*25.;
-        gen.seed(rd());
         auto yangl = realgen(gen)*25.;
-        gen.seed(rd());
         auto zangl = realgen(gen)*10.;
         cv::Mat platew, respl, grey, res;
         rotateImage(plate, platew, xangl, yangl,zangl, 0,0,300, 200);
@@ -125,44 +116,88 @@ list<cv::Mat> randomWarps(cv::Mat plate, int n) {
     return warps; 
 }
 
+cv::Mat loadRandomImage(string path) {
+    using fp = bool (*)(const filesystem::path&);
+    auto nfiles = count_if(filesystem::directory_iterator(path), filesystem::directory_iterator{}, (fp)filesystem::is_regular_file);
+    random_device rd;  
+    mt19937 gen(rd());
+    uniform_int_distribution<> intgen(0, nfiles-1);
+    auto n = intgen(gen);
+    int i=0;
+    string s;
+    for (const auto & file: filesystem::directory_iterator(path)) {
+        i++;
+        if (i == n) {
+            s = file.path();
+            break;
+        }
+    }
+    auto back = cv::imread(s);
+    return back;
+}
 
+void generateDatasetImages(string plate_path, string backgr_path, string output_folder, int image_size, double plate_scale, int nwarps){
+    static int imagenum;
+
+    filesystem::create_directory(output_folder);
+    
+    random_device rd;  //Will be used to obtain a seed for the random number engine
+    mt19937 gen(rd());
+    uniform_int_distribution<> intgen(1, image_size-plate_scale*image_size);
+    auto plate = cv::imread(plate_path, cv::IMREAD_UNCHANGED);
+    cv::Mat blured;
+    int ksize = (plate.rows/2)%2==0 ? plate.rows/2+1 : plate.rows/2;
+    cv::GaussianBlur(plate, blured, cv::Size(ksize,ksize), cv::BORDER_DEFAULT);
+    auto wrps = randomWarps(blured, nwarps);
+
+    for (auto& plt: wrps) {
+        imagenum++;
+        string name = output_folder+"/" + to_string(imagenum);
+        ofstream file;
+        file.open(name + ".txt");
+        auto back = loadRandomImage(backgr_path);
+        cv::Mat resplt,resbg;
+        auto scale = plate_scale*image_size/plt.cols;
+        gen.seed(rd());
+        int x = intgen(gen);
+        int y =  intgen(gen);
+        int width = scale*plt.cols;
+        int hight = scale*plt.rows;
+        double yolo_x = double(x+width/2)/image_size;
+        double yolo_y = double(y+hight/2)/image_size;
+        double yolo_w = double(width)/image_size;
+        double yolo_h = double(hight)/image_size;
+        file <<"1 "<<yolo_x<<" "<<yolo_y<<" "<<yolo_w<<" "<<yolo_h<<endl;
+        file.close();
+        cv::resize(back, resbg, cv::Size(image_size,image_size));
+        cv::resize(plt, resplt, cv::Size(scale*plt.cols, scale*plt.rows));
+        overlayImage(resbg, resplt, cv::Point(x,y));
+        cv::imwrite(name + ".png", resbg);
+        // cv::line(resbg,cv::Point(image_size*yolo_x-image_size*yolo_w/2, image_size*yolo_y-image_size*yolo_h/2),cv::Point(image_size*yolo_x+image_size*yolo_w/2, image_size*yolo_y+image_size*yolo_h/2), cv::Scalar(0,0,255));
+        // cv::imshow("res", resbg);
+        // cv::waitKey(0);
+    }
+}
 
 int main(int argc, char const *argv[]) {
-    if (argc<5) {
+    if (argc<6) {
         cout<<"Usage: datset /path/to/plates/ /path/to/background/ output_image_size scale_factor\n";
         return -1;
     }
+
     string plates_path = string(argv[1]);
     string backgr_path = string(argv[2]);
     int image_size = atoi(argv[3]);
-    double plate_scale = atof(argv[4]); 
+    double plate_scale = atof(argv[4]);
+
     string platp;
     for (const auto & entry : filesystem::directory_iterator(plates_path)) {
         auto ext = entry.path().filename().extension();
         if (ext == ".jpg" || ext ==".png") { 
-            // cout << entry.path().filename() << std::endl;
             platp = entry.path();
+            generateDatasetImages(platp, backgr_path, "./output",  image_size, plate_scale, 5);
         }
     }
-
-    random_device rd;  //Will be used to obtain a seed for the random number engine
-    mt19937 gen(rd());
-    uniform_int_distribution<> intgen(1, image_size-plate_scale*image_size);
-    auto plate = cv::imread(platp, cv::IMREAD_UNCHANGED);
-    auto back = cv::imread(backgr_path);
-    auto wrps = randomWarps(plate, 10);
-
-    for (auto& plt: wrps) {
-        cv::Mat resbg;
-        cv::Mat resplt, resresplt;
-        auto scale = plate_scale*image_size/plt.cols;
-        cv::resize(back, resbg, cv::Size(image_size,image_size));
-        cv::resize(plt, resplt, cv::Size(scale*plt.cols, scale*plt.rows));
-        gen.seed(rd());
-        cv::GaussianBlur(resplt, resresplt, cv::Size(3, 3), cv::BORDER_DEFAULT);
-        overlayImage(resbg, resresplt, cv::Point(intgen(gen), intgen(gen)));
-        cv::imshow("res", resbg);
-        cv::waitKey(0);
-    }
+    
     return 0;
 }
