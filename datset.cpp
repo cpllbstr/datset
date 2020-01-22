@@ -126,11 +126,11 @@ cv::Mat loadRandomImage(string path) {
     int i=0;
     string s;
     for (const auto & file: filesystem::directory_iterator(path)) {
-        i++;
         if (i == n) {
             s = file.path();
             break;
         }
+        i++;
     }
     auto back = cv::imread(s);
     return back;
@@ -144,6 +144,7 @@ void generateDatasetImages(string plate_path, string backgr_path, string output_
     random_device rd;  //Will be used to obtain a seed for the random number engine
     mt19937 gen(rd());
     uniform_int_distribution<> intgen(1, image_size-plate_scale*image_size);
+    uniform_real_distribution<> realgen(0.8, 1);
     auto plate = cv::imread(plate_path, cv::IMREAD_UNCHANGED);
     cv::Mat blured;
     int ksize = (plate.rows/2)%2==0 ? plate.rows/2+1 : plate.rows/2;
@@ -154,11 +155,11 @@ void generateDatasetImages(string plate_path, string backgr_path, string output_
         imagenum++;
         string name = output_folder+"/" + to_string(imagenum);
         ofstream file;
-        file.open(name + ".txt");
         auto back = loadRandomImage(backgr_path);
+        file.open(name + ".txt");
         cv::Mat resplt,resbg;
-        auto scale = plate_scale*image_size/plt.cols;
         gen.seed(rd());
+        auto scale = realgen(gen)*plate_scale*image_size/plt.cols;
         int x = intgen(gen);
         int y =  intgen(gen);
         int width = scale*plt.cols;
@@ -170,34 +171,33 @@ void generateDatasetImages(string plate_path, string backgr_path, string output_
         file <<"1 "<<yolo_x<<" "<<yolo_y<<" "<<yolo_w<<" "<<yolo_h<<endl;
         file.close();
         cv::resize(back, resbg, cv::Size(image_size,image_size));
+        cout<<"back"<<endl;
         cv::resize(plt, resplt, cv::Size(scale*plt.cols, scale*plt.rows));
+        cout<<"front"<<endl;
         overlayImage(resbg, resplt, cv::Point(x,y));
         cv::imwrite(name + ".png", resbg);
-        // cv::line(resbg,cv::Point(image_size*yolo_x-image_size*yolo_w/2, image_size*yolo_y-image_size*yolo_h/2),cv::Point(image_size*yolo_x+image_size*yolo_w/2, image_size*yolo_y+image_size*yolo_h/2), cv::Scalar(0,0,255));
-        // cv::imshow("res", resbg);
-        // cv::waitKey(0);
     }
 }
 
 int main(int argc, char const *argv[]) {
     if (argc<6) {
-        cout<<"Usage: datset /path/to/plates/ /path/to/background/ output_image_size scale_factor\n";
+        cout<<"Usage: datset /path/to/plates/ /path/to/background/ ./output_path output_image_size scale_factor number_of_warps\n";
         return -1;
     }
 
     string plates_path = string(argv[1]);
     string backgr_path = string(argv[2]);
-    int image_size = atoi(argv[3]);
-    double plate_scale = atof(argv[4]);
+    string output_path = string(argv[3]);
+    int image_size = atoi(argv[4]);
+    double plate_scale = atof(argv[5]);
 
     string platp;
     for (const auto & entry : filesystem::directory_iterator(plates_path)) {
         auto ext = entry.path().filename().extension();
         if (ext == ".jpg" || ext ==".png") { 
             platp = entry.path();
-            generateDatasetImages(platp, backgr_path, "./output",  image_size, plate_scale, 5);
+            generateDatasetImages(platp, backgr_path, output_path,  image_size, plate_scale, 5);
         }
-    }
-    
+    } 
     return 0;
 }
