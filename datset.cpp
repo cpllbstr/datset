@@ -5,6 +5,12 @@
 #include <chrono>
 #include <fstream>
 
+#ifdef __linux__
+    #include <dirent.h>
+#elif _WIN32
+    //there should be windows' version of directory lib but who cares
+#endif
+
 using namespace std;
 
 void overlayImage(cv::Mat &src, cv::Mat &overlay, const cv::Point& location) {
@@ -138,9 +144,6 @@ cv::Mat loadRandomImage(string path) {
 
 void generateDatasetImages(string plate_path, string backgr_path, string output_folder, int image_size, double plate_scale, int nwarps){
     static int imagenum;
-
-    filesystem::create_directory(output_folder);
-    
     random_device rd;  //Will be used to obtain a seed for the random number engine
     mt19937 gen(rd());
     uniform_int_distribution<> intgen(1, image_size-plate_scale*image_size);
@@ -179,12 +182,16 @@ void generateDatasetImages(string plate_path, string backgr_path, string output_
     }
 }
 
+// inline std::string getExt(std::string file) {
+    // return file.substr(file.rfind('.')+1,file.size());
+// }
+
 int main(int argc, char const *argv[]) {
     if (argc<6) {
         cout<<"Usage: datset /path/to/plates/ /path/to/background/ ./output_path output_image_size scale_factor number_of_warps\n";
         return -1;
     }
-
+    auto extl = [](std::string file) {return file.substr(file.rfind('.')+1,file.size());};
     string plates_path = string(argv[1]);
     string backgr_path = string(argv[2]);
     string output_path = string(argv[3]);
@@ -192,12 +199,25 @@ int main(int argc, char const *argv[]) {
     double plate_scale = atof(argv[5]);
 
     string platp;
-    for (const auto & entry : filesystem::directory_iterator(plates_path)) {
-        auto ext = entry.path().filename().extension();
-        if (ext == ".jpg" || ext ==".png") { 
-            platp = entry.path();
-            generateDatasetImages(platp, backgr_path, output_path,  image_size, plate_scale, 5);
+    DIR *plates_dir;
+    struct dirent *ent;
+    if ((plates_dir = opendir(plates_path.data())) == NULL) {
+        return EXIT_FAILURE;
+    }
+    
+    while ((ent = readdir(plates_dir)) != NULL) {
+        auto ext = extl(ent->d_name);
+        if (ext=="jpg" || ext == "png") {
+            cout <<ext<<endl;
+            string platp;
+            if (plates_path[plates_path.size()-1]=='/') 
+                platp = plates_path + ent->d_name;
+            else 
+                platp = plates_path + '/' +ent->d_name;
+            generateDatasetImages(platp, backgr_path, output_path, image_size, plate_scale, 5);
         }
-    } 
+    }
+    closedir(plates_dir);
+ 
     return 0;
 }
