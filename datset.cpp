@@ -9,6 +9,12 @@
 
 using namespace std;
 
+string pather(string path){
+    if (path[path.size()-1]!='/') 
+        return path + "/";
+    return path;
+}
+
 void overlayImage(cv::Mat &src, cv::Mat &overlay, const cv::Point& location) {
     for (int y = max(location.y, 0); y < src.rows; ++y)
     {
@@ -40,7 +46,7 @@ cv::Mat clearBg(cv::Mat plate) {
     cv::Mat tmp, alpha, dst;
     cv::cvtColor(plate,tmp,cv::COLOR_BGR2GRAY);
     cv::threshold(tmp,alpha,1,255,cv::THRESH_BINARY);
-    cv::Mat rgb[3];
+    vector<cv::Mat> rgb(3);
     cv::split(plate,rgb);
     cv::Mat rgba[4]={rgb[0],rgb[1],rgb[2],alpha};
     cv::merge(rgba,4,dst);
@@ -155,7 +161,7 @@ void generateDatasetImages(string plate_path, string backgr_path, string output_
 
     for (auto& plt: wrps) {
         imagenum++;
-        string name = output_folder+"/" + to_string(imagenum);
+        string name = output_folder + to_string(imagenum);
         ofstream file;
         auto back = loadRandomImage(backgr_path);
         file.open(name + ".txt");
@@ -170,7 +176,7 @@ void generateDatasetImages(string plate_path, string backgr_path, string output_
         double yolo_y = double(y+hight/2)/image_size;
         double yolo_w = double(width)/image_size;
         double yolo_h = double(hight)/image_size;
-        file <<"1 "<<yolo_x<<" "<<yolo_y<<" "<<yolo_w<<" "<<yolo_h<<endl;
+        file <<"0 "<<yolo_x<<" "<<yolo_y<<" "<<yolo_w<<" "<<yolo_h<<endl;
         file.close();
         cv::resize(back, resbg, cv::Size(image_size,image_size));
         // cout<<"back"<<endl;
@@ -187,14 +193,12 @@ int main(int argc, char const *argv[]) {
         cout<<"Usage: datset /path/to/plates/ /path/to/background/ ./output_path output_image_size scale_factor number_of_warps\n";
         return -1;
     }
-    // auto extl = [](std::string file) {return file.substr(file.rfind('.')+1,file.size());};
-    string plates_path = string(argv[1]);
-    string backgr_path = string(argv[2]);
-    string output_path = string(argv[3]);
+    string plates_path = pather(argv[1]);
+    string backgr_path = pather(argv[2]);
+    string output_path = pather(argv[3]);
     int image_size = atoi(argv[4]);
     double plate_scale = atof(argv[5]);
 
-    string platp;
     DIR *plates_dir;
     struct dirent *ent;
     if ((plates_dir = opendir(plates_path.data())) == NULL) {
@@ -203,12 +207,7 @@ int main(int argc, char const *argv[]) {
     while (ent = readdir(plates_dir)) {
         auto ext = extl(ent->d_name);
         if (ext=="jpg" || ext == "png") {
-            string platp;
-            if (plates_path[plates_path.size()-1]=='/') 
-                platp = plates_path + ent->d_name;
-            else 
-                platp = plates_path + '/' +ent->d_name;
-            generateDatasetImages(platp, backgr_path, output_path, image_size, plate_scale, 5);
+            generateDatasetImages(plates_path + ent->d_name, backgr_path, output_path, image_size, plate_scale, 5);
         }
     }
     closedir(plates_dir);
