@@ -4,12 +4,8 @@
 #include <random>
 #include <chrono>
 #include <fstream>
+#include <dirent.h>
 
-#ifdef __linux__
-    #include <dirent.h>
-#elif _WIN32
-    //there should be windows' version of directory lib but who cares
-#endif
 
 using namespace std;
 
@@ -122,24 +118,27 @@ list<cv::Mat> randomWarps(cv::Mat plate, int n) {
     return warps; 
 }
 
+inline std::string extl(std::string file) {
+    return file.substr(file.rfind('.')+1,file.size());
+}
+
 cv::Mat loadRandomImage(string path) {
-    using fp = bool (*)(const filesystem::path&);
-    auto nfiles = count_if(filesystem::directory_iterator(path), filesystem::directory_iterator{}, (fp)filesystem::is_regular_file);
+    static std::vector<string> files;
+    if (files.empty()) {
+        DIR *dir =  opendir(path.data()); 
+        struct dirent *ent;
+        while (ent = readdir(dir)) {
+            auto ext = extl(ent->d_name);
+            if (ext=="jpg" || ext == "png") {
+                files.push_back(ent->d_name);
+            }
+        }
+    }
     random_device rd;  
     mt19937 gen(rd());
-    uniform_int_distribution<> intgen(0, nfiles-1);
+    uniform_int_distribution<> intgen(0, files.size()-1);
     auto n = intgen(gen);
-    int i=0;
-    string s;
-    for (const auto & file: filesystem::directory_iterator(path)) {
-        if (i == n) {
-            s = file.path();
-            break;
-        }
-        i++;
-    }
-    auto back = cv::imread(s);
-    return back;
+    return cv::imread(path+files[n]);
 }
 
 void generateDatasetImages(string plate_path, string backgr_path, string output_folder, int image_size, double plate_scale, int nwarps){
@@ -174,24 +173,21 @@ void generateDatasetImages(string plate_path, string backgr_path, string output_
         file <<"1 "<<yolo_x<<" "<<yolo_y<<" "<<yolo_w<<" "<<yolo_h<<endl;
         file.close();
         cv::resize(back, resbg, cv::Size(image_size,image_size));
-        cout<<"back"<<endl;
+        // cout<<"back"<<endl;
         cv::resize(plt, resplt, cv::Size(scale*plt.cols, scale*plt.rows));
-        cout<<"front"<<endl;
+        // cout<<"front"<<endl;
         overlayImage(resbg, resplt, cv::Point(x,y));
         cv::imwrite(name + ".png", resbg);
     }
 }
 
-// inline std::string getExt(std::string file) {
-    // return file.substr(file.rfind('.')+1,file.size());
-// }
 
 int main(int argc, char const *argv[]) {
     if (argc<6) {
         cout<<"Usage: datset /path/to/plates/ /path/to/background/ ./output_path output_image_size scale_factor number_of_warps\n";
         return -1;
     }
-    auto extl = [](std::string file) {return file.substr(file.rfind('.')+1,file.size());};
+    // auto extl = [](std::string file) {return file.substr(file.rfind('.')+1,file.size());};
     string plates_path = string(argv[1]);
     string backgr_path = string(argv[2]);
     string output_path = string(argv[3]);
@@ -204,11 +200,9 @@ int main(int argc, char const *argv[]) {
     if ((plates_dir = opendir(plates_path.data())) == NULL) {
         return EXIT_FAILURE;
     }
-    
-    while ((ent = readdir(plates_dir)) != NULL) {
+    while (ent = readdir(plates_dir)) {
         auto ext = extl(ent->d_name);
         if (ext=="jpg" || ext == "png") {
-            cout <<ext<<endl;
             string platp;
             if (plates_path[plates_path.size()-1]=='/') 
                 platp = plates_path + ent->d_name;
