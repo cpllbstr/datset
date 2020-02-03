@@ -5,15 +5,9 @@
 #include <chrono>
 #include <fstream>
 #include <dirent.h>
-
+// #include <inipp.h>
 
 using namespace std;
-
-string pather(string path){
-    if (path[path.size()-1]!='/') 
-        return path + "/";
-    return path;
-}
 
 void overlayImage(cv::Mat &src, cv::Mat &overlay, const cv::Point& location) {
     for (int y = max(location.y, 0); y < src.rows; ++y)
@@ -179,9 +173,7 @@ void generateDatasetImages(string plate_path, string backgr_path, string output_
         file <<"0 "<<yolo_x<<" "<<yolo_y<<" "<<yolo_w<<" "<<yolo_h<<endl;
         file.close();
         cv::resize(back, resbg, cv::Size(image_size,image_size));
-        // cout<<"back"<<endl;
         cv::resize(plt, resplt, cv::Size(scale*plt.cols, scale*plt.rows));
-        // cout<<"front"<<endl;
         overlayImage(resbg, resplt, cv::Point(x,y));
         cv::imwrite(name + ".png", resbg);
     }
@@ -193,6 +185,11 @@ int main(int argc, char const *argv[]) {
         cout<<"Usage: datset /path/to/plates/ /path/to/background/ ./output_path output_image_size scale_factor number_of_warps\n";
         return -1;
     }
+    auto pather = [](string path) {
+         if (path[path.size()-1]!='/') 
+            return path + "/";
+        return path;
+    };
     string plates_path = pather(argv[1]);
     string backgr_path = pather(argv[2]);
     string output_path = pather(argv[3]);
@@ -204,7 +201,13 @@ int main(int argc, char const *argv[]) {
     if ((plates_dir = opendir(plates_path.data())) == NULL) {
         return EXIT_FAILURE;
     }
+    auto spinner = array<char, 4> {'|', '/', '-', '\\'};
+    cout<<"  Generating dataset...";
+    int i =0;
     while (ent = readdir(plates_dir)) {
+        cout<<"\r"<<spinner[i%4]<<'\r';
+        std::fflush(NULL);
+        i++;
         auto ext = extl(ent->d_name);
         if (ext=="jpg" || ext == "png") {
             generateDatasetImages(plates_path + ent->d_name, backgr_path, output_path, image_size, plate_scale, 5);
